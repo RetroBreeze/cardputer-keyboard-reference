@@ -3,6 +3,8 @@
 **For AI agents and developers implementing keyboard input in Arduino/C++ projects.**
 All data verified from M5Cardputer library source code (v1.1.1+) and empirical testing on hardware (February 2026).
 
+Note: This project was created in collaboration with Anthropic Claude Opus 4.6.
+
 ---
 
 ## 1. HARDWARE ARCHITECTURE
