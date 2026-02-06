@@ -3,11 +3,13 @@
 **For AI agents and developers implementing keyboard input in Arduino/C++ projects.**
 All data verified from M5Cardputer library source code (v1.1.1+) and empirical testing on hardware (February 2026).
 
+Working examples in `examples/` — a [text editor](examples/text-editor/text-editor.ino) and [keyboard diagnostic tool](examples/keyboard-diagnostic/keyboard-diagnostic.ino) that validate this reference.
+
 Note: This project was created in collaboration with Anthropic Claude Opus 4.6.
 
 ---
 
-## 1. HARDWARE ARCHITECTURE
+## 1. Hardware architecture
 
 The Cardputer ADV uses a **TCA8418** I²C keypad scan controller (replacing the original Cardputer's GPIO matrix).
 
@@ -22,13 +24,13 @@ The Cardputer ADV uses a **TCA8418** I²C keypad scan controller (replacing the 
 | N-key rollover | **10+ keys confirmed** (tested simultaneously) |
 | Library | M5Cardputer v1.1.1+ (auto-detects ADV vs original) |
 
-The TCA8418 scans autonomously and fires an interrupt on key events. The library maintains a running list of pressed keys (add on press, remove on release). Unlike the original Cardputer's GPIO scanning, rollover is NOT limited to 3 keys — the ADV hardware supports at least 10 simultaneous non-modifier keys with no ghosting on the home row.
+The TCA8418 scans autonomously and fires an interrupt on key events. The library maintains a running list of pressed keys (add on press, remove on release). Unlike the original Cardputer's GPIO scanning, rollover is not limited to 3 keys — the ADV hardware supports at least 10 simultaneous non-modifier keys with no ghosting on the home row.
 
 The same library API works on both original Cardputer and Cardputer ADV. The hardware variant is detected at runtime in `Keyboard_Class::begin()` via `M5.getBoard()`.
 
 ---
 
-## 2. INITIALIZATION
+## 2. Initialization
 
 ```cpp
 #include <M5Cardputer.h>
@@ -50,9 +52,7 @@ void setup() {
 
 ---
 
-## 3. CORE API — THE POLLING LOOP
-
-Every project MUST follow this pattern:
+## 3. Core API
 
 ```cpp
 void loop() {
@@ -72,7 +72,7 @@ void loop() {
 }
 ```
 
-**Critical**: `M5Cardputer.update()` must be called frequently. Long `delay()` or blocking I/O will cause the TCA8418's 10-event FIFO to overflow, silently losing keystrokes.
+`M5Cardputer.update()` must be called frequently. Long `delay()` or blocking I/O will cause the TCA8418's 10-event FIFO to overflow, silently losing keystrokes.
 
 ### API methods
 
@@ -89,7 +89,7 @@ void loop() {
 
 ---
 
-## 4. KeysState STRUCT — COMPLETE DEFINITION
+## 4. KeysState struct
 
 ```cpp
 struct KeysState {
@@ -114,9 +114,7 @@ struct KeysState {
 };
 ```
 
-### What goes WHERE — the critical routing table
-
-This table defines exactly where each physical key's data appears. Verified empirically.
+### Routing table
 
 | Physical key | Boolean flag | In `word`? | In `hid_keys`? | In `modifier_keys`? |
 |---|---|---|---|---|
@@ -133,7 +131,7 @@ This table defines exactly where each physical key's data appears. Verified empi
 | **Alt** | `alt=true` | ❌ empty | ❌ empty | ✅ `0x82` |
 | **Opt** | `opt=true` | ❌ empty | ❌ empty | ❌ |
 
-### modifiers bitmask values
+### Modifiers bitmask values
 
 | Modifier | Bit | Value when pressed alone |
 |---|---|---|
@@ -143,11 +141,11 @@ This table defines exactly where each physical key's data appears. Verified empi
 
 Formula: `modifiers |= (1 << (KEY_CODE - 0x80))` where KEY_LEFT_CTRL=0x80, KEY_LEFT_SHIFT=0x81, KEY_LEFT_ALT=0x82.
 
-**Fn and Opt do NOT set any modifier bits.** They are boolean flags only.
+Fn and Opt do not set any modifier bits. They are boolean flags only.
 
 ---
 
-## 5. KEY CONSTANTS (Keyboard_def.h) — COMPLETE
+## 5. Key constants (from Keyboard_def.h)
 
 ```cpp
 #define KEY_LEFT_CTRL  0x80
@@ -160,22 +158,22 @@ Formula: `modifiers |= (1 << (KEY_CODE - 0x80))` where KEY_LEFT_CTRL=0x80, KEY_L
 #define KEY_ENTER      0x28
 ```
 
-**That's ALL of them.** There is no KEY_ESC, no KEY_UP_ARROW, no KEY_DELETE, no KEY_F1–F12. These do not exist in the library.
+There is no KEY_ESC, no KEY_UP_ARROW, no KEY_DELETE, no KEY_F1–F12 defined in the library. These will not compile. ESC, arrows, forward delete, and F-keys are achieved through Fn-layer combinations that your application must handle manually — see Section 7.
 
-### Modifier stacking behavior (empirically confirmed)
+### Modifier stacking behavior
 
 When multiple modifiers are held simultaneously (e.g., Fn+Shift+key), all applicable modifier flags are set and the character in `word` is resolved by the Shift/Ctrl/Caps logic (value_second). Example: Fn+Shift+`;` produces `fn=true`, `shift=true`, word=`':'`, hid=`0x33`. Your application's Fn handler should take priority over text input (process the Fn layer first, skip normal text input). The shifted character in word is a side effect — ignore it when Fn is active.
 
-### ⚠️ KEY_OPT = 0x00 WARNING
+### KEY_OPT = 0x00 warning
 
 `KEY_OPT` is defined as `0x00` (NUL). This means:
-- **Never use `isKeyPressed(KEY_OPT)`** — it will match zero/null entries unpredictably
+- Don't use `isKeyPressed(KEY_OPT)`. It will match zero/null entries unpredictably
 - Always detect Opt via `status.opt` boolean
 - Opt produces nothing in word, hid_keys, or modifier_keys
 
 ---
 
-## 6. PHYSICAL LAYOUT AND KEYMAP
+## 6. Physical layout and keymap
 
 ### Key value map (from source: `_key_value_map[4][14]`)
 
@@ -188,27 +186,26 @@ Row 2: {FN,FN}   {SHF,SHF} {'a','A'} {'s','S'} {'d','D'} {'f','F'} {'g','G'} {'h
 Row 3: {CTL,CTL} {OPT,OPT} {ALT,ALT} {'z','Z'} {'x','X'} {'c','C'} {'v','V'} {'b','B'} {'n','N'} {'m','M'} {',','<'} {'.','>'} {'/','?'} {' ',' '}
 ```
 
-### `-` / `_` mapping is STANDARD
+### `-` / `_` mapping is standard, but the label is misleading
 
 Base layer = `-`, Shift layer = `_`. This follows normal US keyboard convention. The keycap printing on the device shows `_` prominently, which can be misleading, but the firmware maps it conventionally: `-` unshifted, `_` shifted.
 
 ---
 
-## 7. THE Fn LAYER — THE LIBRARY DOES NOTHING
+## 7. Fn layer
 
-**This is the single most important section.** The library sets `status.fn = true` when Fn is held and does absolutely nothing else. No remapping. No character substitution. No HID code translation.
+The library sets `status.fn = true` when Fn is held and does nothing else. Actual Fn layer/functionality must be implemented in your code.
 
 When Fn + any key is pressed:
 - `status.fn` = `true`
 - `status.word` contains the **base layer character** (e.g., Fn+`;` → word contains `';'`)
 - `status.hid_keys` contains the **base key's HID code** (e.g., Fn+`;` → hid contains `0x33`)
-- No arrow codes, no F-key codes, no ESC code — ever
 
-### Fn layer remapping — YOUR application must implement this
+### Fn layer mapping
 
 #### Arrow keys
 
-The `;` `,` `.` `/` keys double as ↑ ← ↓ → when Fn is held (as printed on the keycaps).
+The `;` `,` `.` `/` keys double as arrow keys when Fn is held (as printed on the keycaps).
 
 ```cpp
 // Detect arrow keys from Fn + base key
@@ -251,9 +248,9 @@ if (status.fn) {
 }
 ```
 
-#### Forward Delete
+#### Forward delete
 
-Backspace is always Backspace. Fn + Backspace = forward delete:
+Backspace is always Backspace. Fn + Backspace is forward delete:
 
 ```cpp
 if (status.del) {
@@ -319,14 +316,14 @@ if (status.fn) {
 
 ---
 
-## 8. SHIFT/CTRL LAYER BEHAVIOR
+## 8. Shift/Ctrl layer behavior
 
-The library resolves `value_second` (the shifted character) when **any** of these conditions are true:
+The library resolves `value_second` (the shifted character) when any of these conditions are true:
 - `status.shift` (Aa key held)
 - `status.ctrl` (Ctrl key held)
 - Caps Lock is enabled via `setCapsLocked(true)`
 
-This means **Ctrl+a produces `'A'` in `status.word`**, not `'a'`. This is by design in the source code:
+This means Ctrl+a produces `'A'` in `status.word`, not `'a'`. This is by design in the source code:
 
 ```cpp
 if (_keys_state_buffer.ctrl || _keys_state_buffer.shift || _is_caps_locked) {
@@ -338,7 +335,7 @@ if (_keys_state_buffer.ctrl || _keys_state_buffer.shift || _is_caps_locked) {
 
 ### Implications for Ctrl+key shortcuts
 
-If your app checks for Ctrl+C by looking for `status.ctrl && word contains 'c'`, it will **never match** because Ctrl forces uppercase. You must check for uppercase:
+If your app checks for Ctrl+C by looking for `status.ctrl && word contains 'c'`, it will never match because Ctrl forces uppercase. You must check for uppercase:
 
 ```cpp
 // WRONG — will never match
@@ -363,13 +360,13 @@ if (status.ctrl) {
 }
 ```
 
-This applies to ALL Ctrl+key combinations. It also applies to symbols: Ctrl+`-` produces `_`, Ctrl+`=` produces `+`, Ctrl+`;` produces `:`, etc.
+This applies to all Ctrl+key combinations. It also applies to symbols: Ctrl+`-` produces `_`, Ctrl+`=` produces `+`, Ctrl+`;` produces `:`, etc.
 
 ---
 
-## 9. CAPS LOCK — APPLICATION MANAGED
+## 9. Caps lock
 
-The library does **not** auto-toggle caps lock. The Aa key is a momentary shift — it only works while held. To implement caps lock toggle:
+The library does not auto-toggle caps lock. The Aa key is a momentary shift and only works while held. To implement a caps lock toggle:
 
 ```cpp
 // Example: Fn+Shift toggles caps lock
@@ -387,13 +384,13 @@ When caps lock is on, all letter keys produce uppercase in `status.word` (value_
 
 ---
 
-## 10. isKeyPressed() REFERENCE
+## 10. isKeyPressed() reference
 
 ```cpp
 bool isKeyPressed(char c);
 ```
 
-Accepts printable ASCII characters and KEY_* constants. Checks the raw matrix — does NOT account for modifiers.
+Accepts printable ASCII characters and KEY_* constants. Checks the raw matrix — does not account for modifiers.
 
 | Argument | Works? | Notes |
 |---|---|---|
@@ -409,11 +406,11 @@ Accepts printable ASCII characters and KEY_* constants. Checks the raw matrix �
 | `KEY_TAB` (0x2B) | ✅ | |
 | `KEY_ENTER` (0x28) | ✅ | |
 | `KEY_FN` (0xFF) | ✅ | |
-| `KEY_OPT` (0x00) | ⚠️ **AVOID** | Maps to NUL — unreliable matching |
+| `KEY_OPT` (0x00) | ⚠️ Avoid | Maps to NUL — unreliable matching |
 
 ---
 
-## 11. HID USAGE ID LOOKUP TABLE
+## 11. HID usage ID lookup table
 
 For USB HID output or Fn-layer remapping. These are the values that appear in `status.hid_keys`.
 
@@ -438,7 +435,7 @@ For USB HID output or Fn-layer remapping. These are the values that appear in `s
 | 2 | 0x1F | 5 | 0x22 | 8 | 0x25 |
 | 3 | 0x20 | 6 | 0x23 | 9 | 0x26 |
 
-Note: When shift/ctrl/caps is active, the library still puts the **base key's HID code** in `hid_keys` (e.g., Shift+a → hid_keys contains `0x04`, not `0x84`). The SHIFT bit is conveyed separately via `status.modifiers`.
+Note: When shift/ctrl/caps is active, the library still puts the base key's HID code in `hid_keys` (e.g., Shift+a → hid_keys contains `0x04`, not `0x84`). The SHIFT bit is conveyed separately via `status.modifiers`.
 
 ### Special keys
 
@@ -471,7 +468,7 @@ Note: When shift/ctrl/caps is active, the library still puts the **base key's HI
 
 ---
 
-## 12. COMPLETE TEXT INPUT TEMPLATE
+## 12. Text input template
 
 Copy-paste starting point for any text input application:
 
@@ -528,7 +525,7 @@ void loop() {
             // --- Ctrl shortcuts ---
             if (s.ctrl) {
                 for (auto c : s.word) {
-                    switch (tolower(c)) {  // ⚠️ Ctrl forces uppercase — normalize
+                    switch (tolower(c)) {  // Ctrl forces uppercase, normalize to lower case
                         case 's': handleSave();   break;
                         case 'z': handleUndo();   break;
                         case 'c': handleCopy();   break;
@@ -563,26 +560,26 @@ void loop() {
 
 ---
 
-## 13. COMMON GOTCHAS SUMMARY
+## 13. Common gotchas
 
 | # | Gotcha | Details |
 |---|---|---|
-| 1 | **Library v1.1.1 minimum** | v1.1.0 has broken uppercase for z, c, b, m |
-| 2 | **Fn layer is 100% your job** | Library only sets `status.fn = true`. No remapping. |
-| 3 | **No KEY_ESC constant exists** | Top-left key is backtick, not ESC. Use Fn+backtick. |
-| 4 | **Ctrl forces uppercase in word** | Ctrl+a → word contains `'A'`. Use `tolower()`. |
-| 5 | **KEY_OPT = 0x00 (NUL)** | Never use with `isKeyPressed()`. Use `status.opt` only. |
-| 6 | **Tab/Enter/Backspace not in word** | These only set boolean flags + appear in hid_keys. |
-| 7 | **Space IS in word** | Space appears as `' '` in word AND sets `status.space`. |
-| 8 | **Caps lock is app-managed** | Library does not auto-toggle. Call `setCapsLocked()`. |
-| 9 | **isPressed() returns count, not bool** | Works in boolean context but is actually uint8_t. |
-| 10 | **`-`/`_` mapping is standard** | Base = `-`, Shift = `_`. Keycap printing is misleading. |
-| 11 | **Opt produces nothing except boolean** | No word, no hid_keys, no modifier_keys entry. |
-| 12 | **Fn and Opt don't set modifier bits** | Only Ctrl (0x01), Shift (0x02), Alt (0x04) do. |
+| 1 | Library v1.1.1 minimum | v1.1.0 has broken uppercase for z, c, b, m |
+| 2 | Fn layer is 100% your job | Library only sets `status.fn = true`. No remapping. |
+| 3 | No KEY_ESC constant exists | Top-left key is backtick, not ESC. Use Fn+backtick. |
+| 4 | Ctrl forces uppercase in word | Ctrl+a → word contains `'A'`. Use `tolower()`. |
+| 5 | KEY_OPT = 0x00 (NUL) | Never use with `isKeyPressed()`. Use `status.opt` only. |
+| 6 | Tab/Enter/Backspace not in word | These only set boolean flags + appear in hid_keys. |
+| 7 | Space IS in word | Space appears as `' '` in word AND sets `status.space`. |
+| 8 | Caps lock is app-managed | Library does not auto-toggle. Call `setCapsLocked()`. |
+| 9 | isPressed() returns count, not bool | Works in boolean context but is actually uint8_t. |
+| 10 | `-`/`_` mapping is standard | Base = `-`, Shift = `_`. Keycap printing is misleading. |
+| 11 | Opt produces nothing except boolean | No word, no hid_keys, no modifier_keys entry. |
+| 12 | Fn and Opt don't set modifier bits | Only Ctrl (0x01), Shift (0x02), Alt (0x04) do. |
 
 ---
 
-## 14. SOURCE FILES REFERENCE
+## 14. Source files reference
 
 All files in `M5Cardputer/src/utility/`:
 
